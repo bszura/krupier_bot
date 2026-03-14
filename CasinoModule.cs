@@ -11,19 +11,13 @@ public class CasinoModule : InteractionModuleBase<SocketInteractionContext>
 
     public CasinoModule(DatabaseService db) => _db = db;
 
-    // ── 🃏 BLACKJACK ──────────────────────────────────────────
-
     [SlashCommand("bj", "Zagraj w Blackjacka!")]
     public async Task Blackjack([Summary("stawka")] int bet)
     {
         if (bet <= 0) { await RespondAsync("❌ Stawka musi być > 0!", ephemeral: true); return; }
         var bal = await _db.GetBalanceAsync(Context.User.Id);
         if (bet > bal) { await RespondAsync($"❌ Masz tylko **{bal}**.", ephemeral: true); return; }
-
-        if (_games.ContainsKey(Context.User.Id))
-        {
-            await RespondAsync("❌ Masz aktywną grę! Użyj przycisków Hit lub Stand.", ephemeral: true); return;
-        }
+        if (_games.ContainsKey(Context.User.Id)) { await RespondAsync("❌ Masz aktywną grę!", ephemeral: true); return; }
 
         var game = new BlackjackGame(bet);
         _games[Context.User.Id] = game;
@@ -34,38 +28,47 @@ public class CasinoModule : InteractionModuleBase<SocketInteractionContext>
             _games.Remove(Context.User.Id);
             int win = (int)(bet * 1.5);
             await _db.UpdateBalanceAsync(Context.User.Id, bet + win, true);
-            await Send(game, $"🃏 BLACKJACK! +{win}", Color.Gold, await _db.GetBalanceAsync(Context.User.Id));
+            await RespondAsync(embed: BuildEmbed(game, $"🃏 BLACKJACK! +{win}", Color.Gold, await _db.GetBalanceAsync(Context.User.Id), showDealer: true));
             return;
         }
-        await Send(game, "Hit czy Stand?", Color.Blue, null, showButtons: true);
+
+        await RespondAsync(
+            embed: BuildEmbed(game, "Hit czy Stand?", Color.Blue, null),
+            components: Buttons(Context.User.Id));
     }
 
-    // ── Przyciski ─────────────────────────────────────────────
-
-    [ComponentInteraction("bj_hit")]
-    public async Task OnHit()
+    [ComponentInteraction("bj_hit:*")]
+    public async Task OnHit(string userId)
     {
-        if (!_games.TryGetValue(Context.User.Id, out var game))
-        {
-            await RespondAsync("❌ Brak aktywnej gry.", ephemeral: true); return;
-        }
+        if (Context.User.Id.ToString() != userId) { await RespondAsync("❌ To nie twoja gra!", ephemeral: true); return; }
+        if (!_games.TryGetValue(Context.User.Id, out var game)) { await RespondAsync("❌ Brak gry.", ephemeral: true); return; }
+
         game.PlayerHit();
+
         if (game.PlayerTotal > 21)
         {
             _games.Remove(Context.User.Id);
-            await Update(game, $"💥 Bust! Przegrałeś **{game.Bet}**.", Color.Red, await _db.GetBalanceAsync(Context.User.Id));
+            await ((Discord.WebSocket.SocketMessageComponent)Context.Interaction).UpdateAsync(p =>
+            {
+                p.Embed = BuildEmbed(game, $"💥 Bust! Przegrałeś **{game.Bet}**.", Color.Red, null, showDealer: false);
+                p.Components = new ComponentBuilder().Build();
+            });
             return;
         }
-        await Update(game, $"Masz **{game.PlayerTotal}**. Hit czy Stand?", Color.Blue, null, showButtons: true);
+
+        await ((Discord.WebSocket.SocketMessageComponent)Context.Interaction).UpdateAsync(p =>
+        {
+            p.Embed = BuildEmbed(game, $"Masz **{game.PlayerTotal}**. Hit czy Stand?", Color.Blue, null);
+            p.Components = Buttons(Context.User.Id);
+        });
     }
 
-    [ComponentInteraction("bj_stand")]
-    public async Task OnStand()
+    [ComponentInteraction("bj_stand:*")]
+    public async Task OnStand(string userId)
     {
-        if (!_games.TryGetValue(Context.User.Id, out var game))
-        {
-            await RespondAsync("❌ Brak aktywnej gry.", ephemeral: true); return;
-        }
+        if (Context.User.Id.ToString() != userId) { await RespondAsync("❌ To nie twoja gra!", ephemeral: true); return; }
+        if (!_games.TryGetValue(Context.User.Id, out var game)) { await RespondAsync("❌ Brak gry.", ephemeral: true); return; }
+
         _games.Remove(Context.User.Id);
         game.DealerPlay();
 
@@ -75,60 +78,43 @@ public class CasinoModule : InteractionModuleBase<SocketInteractionContext>
         else                                                                     (payout, msg) = (0,            $"💸 Przegrałeś **{game.Bet}**.");
 
         await _db.UpdateBalanceAsync(Context.User.Id, payout, true);
-        await Update(game, msg,
-            payout > game.Bet ? Color.Green : payout == game.Bet ? Color.Orange : Color.Red,
-            await _db.GetBalanceAsync(Context.User.Id), showDealer: true);
+        var newBal = await _db.GetBalanceAsync(Context.User.Id);
+
+        await ((Discord.WebSocket.SocketMessageComponent)Context.Interaction).UpdateAsync(p =>
+        {
+            p.Embed = BuildEmbed(game, msg,
+                payout > game.Bet ? Color.Green : payout == game.Bet ? Color.Orange : Color.Red,
+                newBal, showDealer: true);
+            p.Components = new ComponentBuilder().Build();
+        });
     }
 
-    // ── Helpers ───────────────────────────────────────────────
-
-    private static MessageComponent? BuildButtons() =>
-        new ComponentBuilder()
-            .WithButton("Hit", "bj_hit", ButtonStyle.Primary, new Emoji("🃏"))
-            .WithButton("Stand", "bj_stand", ButtonStyle.Danger, new Emoji("✋"))
+    private static MessageComponent Buttons(ulong? userId = null)
+    {
+        string id = userId?.ToString() ?? "0";
+        return new ComponentBuilder()
+            .WithButton("Hit", $"bj_hit:{id}", ButtonStyle.Primary, new Emoji("🃏"))
+            .WithButton("Stand", $"bj_stand:{id}", ButtonStyle.Danger, new Emoji("✋"))
             .Build();
+    }
 
     private static Embed BuildEmbed(BlackjackGame g, string status, Color color, int? bal, bool showDealer = false)
     {
+        var dealerField = showDealer
+            ? $"{string.Join(" ", g.DealerCards)} → **{g.DealerTotal}**"
+            : $"{g.DealerCards[0]} 🂠 → **?**";
+
         var e = new EmbedBuilder()
             .WithTitle("🃏 Blackjack")
             .WithColor(color)
             .WithDescription(status)
-            .AddField("Twoje karty", $"{string.Join(" ", g.PlayerCards)} → **{g.PlayerTotal}**");
+            .AddField("Twoje karty", $"{string.Join(" ", g.PlayerCards)} → **{g.PlayerTotal}**")
+            .AddField("Krupier", dealerField)
+            .AddField("Stawka", $"{g.Bet}", true);
 
-        if (showDealer)
-            e.AddField("Krupier", $"{string.Join(" ", g.DealerCards)} → **{g.DealerTotal}**");
-        else
-            e.AddField("Krupier", $"{g.DealerCards[0]} 🂠");
-
-        e.AddField("Stawka", $"{g.Bet}", true);
-        if (bal.HasValue) e.AddField("Saldo", $"{bal}", true);
+        if (bal.HasValue) e.AddField("Saldo", $"{bal:N0}", true);
         e.WithFooter("Waluta: riry");
         return e.Build();
-    }
-
-    // Pierwsze wysłanie (RespondWithFileAsync)
-    private async Task Send(BlackjackGame g, string status, Color color, int? bal,
-        bool showDealer = false, bool showButtons = false)
-    {
-        using var rira = File.OpenRead("rira.png");
-        await RespondWithFileAsync(rira, "rira.png",
-            embed: BuildEmbed(g, status, color, bal, showDealer),
-            components: showButtons ? BuildButtons() : null);
-    }
-
-    // Aktualizacja przez przycisk (UpdateAsync)
-    private async Task Update(BlackjackGame g, string status, Color color, int? bal,
-        bool showDealer = false, bool showButtons = false)
-    {
-        await DeferAsync();
-        using var rira = File.OpenRead("rira.png");
-        await Context.Interaction.ModifyOriginalResponseAsync(p =>
-        {
-            p.Embed      = BuildEmbed(g, status, color, bal, showDealer);
-            p.Components = showButtons ? BuildButtons() : new ComponentBuilder().Build();
-            p.Attachments = new List<FileAttachment> { new(rira, "rira.png") };
-        });
     }
 }
 
