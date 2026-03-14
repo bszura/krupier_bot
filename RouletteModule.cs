@@ -94,7 +94,7 @@ public class RouletteModule : InteractionModuleBase<SocketInteractionContext>
         [Choice("Tuzin 13–24 (x3)",    "d2")]
         [Choice("Tuzin 25–36 (x3)",    "d3")]
         string zaklad,
-        [Summary("stawka")] int stawka,
+        [Summary("stawka", "Ile postawić? Wpisz 'all' żeby postawić wszystko")] string rawStawka,
         [Summary("liczba", "Konkretna liczba 0–36 (x36)")] int? liczba = null)
     {
         if (liczba.HasValue)
@@ -103,8 +103,10 @@ public class RouletteModule : InteractionModuleBase<SocketInteractionContext>
             zaklad = liczba == 0 ? "green" : "n" + liczba;
         }
 
-        if (stawka <= 0) { await RespondAsync("❌ Stawka > 0.", ephemeral: true); return; }
         var bal = await _db.GetBalanceAsync(Context.User.Id);
+        int stawka = rawStawka.Trim().ToLower() == "all" ? bal
+            : int.TryParse(rawStawka, out int s) ? s : -1;
+        if (stawka <= 0) { await RespondAsync("❌ Podaj prawidłową stawkę lub 'all'.", ephemeral: true); return; }
         if (stawka > bal) { await RespondAsync($"❌ Masz tylko **{bal}**.", ephemeral: true); return; }
 
         var ch = Context.Channel.Id;

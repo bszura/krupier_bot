@@ -12,10 +12,12 @@ public class CasinoModule : InteractionModuleBase<SocketInteractionContext>
     public CasinoModule(DatabaseService db) => _db = db;
 
     [SlashCommand("bj", "Zagraj w Blackjacka!")]
-    public async Task Blackjack([Summary("stawka")] int bet)
+    public async Task Blackjack([Summary("stawka", "Ile postawić? Wpisz 'all' żeby postawić wszystko")] string rawBet)
     {
-        if (bet <= 0) { await RespondAsync("❌ Stawka musi być > 0!", ephemeral: true); return; }
         var bal = await _db.GetBalanceAsync(Context.User.Id);
+        int bet = rawBet.Trim().ToLower() == "all" ? bal
+            : int.TryParse(rawBet, out int b) ? b : -1;
+        if (bet <= 0) { await RespondAsync("❌ Podaj prawidłową stawkę lub 'all'.", ephemeral: true); return; }
         if (bet > bal) { await RespondAsync($"❌ Masz tylko **{bal}**.", ephemeral: true); return; }
         if (_games.ContainsKey(Context.User.Id)) { await RespondAsync("❌ Masz aktywną grę!", ephemeral: true); return; }
 
@@ -102,7 +104,7 @@ public class CasinoModule : InteractionModuleBase<SocketInteractionContext>
     {
         var dealerField = showDealer
             ? $"{string.Join(" ", g.DealerCards)} → **{g.DealerTotal}**"
-            : $"{g.DealerCards[0]} 🂠 → **{g.DealerVisibleTotal}**";
+            : $"{g.DealerCards[0]} `[?]` → **{g.DealerVisibleTotal}**";
 
         var e = new EmbedBuilder()
             .WithTitle("🃏 Blackjack")
