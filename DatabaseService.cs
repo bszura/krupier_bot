@@ -1,226 +1,214 @@
-using Microsoft.Data.Sqlite;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
 
 namespace DiscordBot.Services;
 
 public class DatabaseService
 {
-    private const string DbPath = "casino.db";
-    private readonly string _connectionString = $"Data Source={DbPath}";
+    private static readonly HttpClient _http = new();
+    private string _url = "";
+    private string _token = "";
 
     public async Task InitializeAsync()
     {
-        await using var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync();
+        _url   = Environment.GetEnvironmentVariable("TURSO_URL")
+            ?? throw new Exception("Brak TURSO_URL!");
+        _token = Environment.GetEnvironmentVariable("TURSO_TOKEN")
+            ?? throw new Exception("Brak TURSO_TOKEN!");
 
-        var cmd = conn.CreateCommand();
-        cmd.CommandText = @"
-            CREATE TABLE IF NOT EXISTS players (
-                user_id     TEXT PRIMARY KEY,
-                balance     INTEGER NOT NULL DEFAULT 100,
-                bank        INTEGER NOT NULL DEFAULT 0,
-                last_work   TEXT,
-                last_rob    TEXT,
-                total_won   INTEGER NOT NULL DEFAULT 0,
-                total_lost  INTEGER NOT NULL DEFAULT 0
-            );";
-        await cmd.ExecuteNonQueryAsync();
+        // Zamień libsql:// na https://
+        _url = _url.Replace("libsql://", "https://");
 
-        // Migracja – dodaj kolumnę bank jeśli nie istnieje (dla starych baz)
-        try
-        {
-            var alter = conn.CreateCommand();
-            alter.CommandText = "ALTER TABLE players ADD COLUMN bank INTEGER NOT NULL DEFAULT 0;";
-            await alter.ExecuteNonQueryAsync();
-        }
-        catch { /* kolumna już istnieje */ }
+        await Exec(@"CREATE TABLE IF NOT EXISTS players (
+            user_id    TEXT PRIMARY KEY,
+            balance    INTEGER NOT NULL DEFAULT 100,
+            bank       INTEGER NOT NULL DEFAULT 0,
+            last_work  TEXT,
+            last_rob   TEXT,
+            total_won  INTEGER NOT NULL DEFAULT 0,
+            total_lost INTEGER NOT NULL DEFAULT 0
+        )");
 
-        Console.WriteLine("✅ Baza danych gotowa.");
+        Console.WriteLine("✅ Baza danych (Turso) gotowa.");
     }
 
-    private async Task EnsurePlayerAsync(SqliteConnection conn, ulong userId)
+    // ── HTTP API ──────────────────────────────────────────────
+
+    private async Task<JsonElement> Exec(string sql, params object?[] args)
     {
-        var cmd = conn.CreateCommand();
-        cmd.CommandText = "INSERT OR IGNORE INTO players (user_id) VALUES ($id);";
-        cmd.Parameters.AddWithValue("$id", userId.ToString());
-        await cmd.ExecuteNonQueryAsync();
+        var stmts = new[]
+        {
+            new
+            {
+                q = sql,
+                params = args.Select((a, i) => new { name = $"?{i+1}", value = a }).ToArray()
+            }
+        };
+
+        // Turso HTTP API format
+        var body = JsonSerializer.Serialize(new
+        {
+            statements = new[]
+            {
+                new
+                {
+                    q = sql,
+                    @params = args.Select(a => a == null
+                        ? (object)new { type = "null" }
+                        : a is int or long
+                            ? new { type = "integer", value = a.ToString() }
+                            : new { type = "text", value = a.ToString() }).ToArray()
+                }
+            }
+        });
+
+        var req = new HttpRequestMessage(HttpMethod.Post, $"{_url}/v2/pipeline");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _token);
+        req.Content = new StringContent(body, Encoding.UTF8, "application/json");
+
+        var resp = await _http.SendAsync(req);
+        var json = await resp.Content.ReadAsStringAsync();
+        return JsonDocument.Parse(json).RootElement;
+    }
+
+    private async Task<List<List<JsonElement>>> Query(string sql, params object?[] args)
+    {
+        var result = await Exec(sql, args);
+        var rows = new List<List<JsonElement>>();
+
+        try
+        {
+            var resultSet = result[0].GetProperty("results").GetProperty("rows");
+            foreach (var row in resultSet.EnumerateArray())
+            {
+                var r = new List<JsonElement>();
+                foreach (var col in row.EnumerateArray())
+                    r.Add(col);
+                rows.Add(r);
+            }
+        }
+        catch { }
+
+        return rows;
+    }
+
+    private static int GetInt(List<JsonElement> row, int col)
+    {
+        try
+        {
+            var v = row[col];
+            if (v.ValueKind == JsonValueKind.Number) return v.GetInt32();
+            if (v.ValueKind == JsonValueKind.String) return int.TryParse(v.GetString(), out int n) ? n : 0;
+            if (v.ValueKind == JsonValueKind.Object)
+            {
+                var val = v.GetProperty("value");
+                if (val.ValueKind == JsonValueKind.Number) return val.GetInt32();
+                return int.TryParse(val.GetString(), out int n2) ? n2 : 0;
+            }
+        }
+        catch { }
+        return 0;
+    }
+
+    private static string? GetStr(List<JsonElement> row, int col)
+    {
+        try
+        {
+            var v = row[col];
+            if (v.ValueKind == JsonValueKind.String) return v.GetString();
+            if (v.ValueKind == JsonValueKind.Object) return v.GetProperty("value").GetString();
+            if (v.ValueKind == JsonValueKind.Null) return null;
+        }
+        catch { }
+        return null;
+    }
+
+    // ── Public API ────────────────────────────────────────────
+
+    private async Task EnsurePlayerAsync(ulong userId)
+    {
+        await Exec("INSERT OR IGNORE INTO players (user_id) VALUES (?)", userId.ToString());
     }
 
     public async Task<int> GetBalanceAsync(ulong userId)
     {
-        await using var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync();
-        await EnsurePlayerAsync(conn, userId);
-
-        var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT balance FROM players WHERE user_id = $id;";
-        cmd.Parameters.AddWithValue("$id", userId.ToString());
-        return Convert.ToInt32(await cmd.ExecuteScalarAsync());
+        await EnsurePlayerAsync(userId);
+        var rows = await Query("SELECT balance FROM players WHERE user_id = ?", userId.ToString());
+        return rows.Count > 0 ? GetInt(rows[0], 0) : 0;
     }
 
     public async Task<(int balance, int bank)> GetWalletAsync(ulong userId)
     {
-        await using var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync();
-        await EnsurePlayerAsync(conn, userId);
-
-        var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT balance, bank FROM players WHERE user_id = $id;";
-        cmd.Parameters.AddWithValue("$id", userId.ToString());
-
-        await using var reader = await cmd.ExecuteReaderAsync();
-        if (await reader.ReadAsync())
-            return (reader.GetInt32(0), reader.GetInt32(1));
+        await EnsurePlayerAsync(userId);
+        var rows = await Query("SELECT balance, bank FROM players WHERE user_id = ?", userId.ToString());
+        if (rows.Count > 0) return (GetInt(rows[0], 0), GetInt(rows[0], 1));
         return (0, 0);
     }
 
     public async Task UpdateBalanceAsync(ulong userId, int delta, bool isWin = false)
     {
-        await using var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync();
-        await EnsurePlayerAsync(conn, userId);
-
-        var cmd = conn.CreateCommand();
+        await EnsurePlayerAsync(userId);
         if (isWin)
-        {
-            cmd.CommandText = @"
-                UPDATE players SET 
-                    balance = MAX(0, balance + $delta),
-                    total_won = total_won + CASE WHEN $delta > 0 THEN $delta ELSE 0 END,
-                    total_lost = total_lost + CASE WHEN $delta < 0 THEN ABS($delta) ELSE 0 END
-                WHERE user_id = $id;";
-        }
+            await Exec(@"UPDATE players SET
+                balance    = MAX(0, balance + ?),
+                total_won  = total_won  + CASE WHEN ? > 0 THEN ? ELSE 0 END,
+                total_lost = total_lost + CASE WHEN ? < 0 THEN ABS(?) ELSE 0 END
+                WHERE user_id = ?",
+                delta, delta, delta, delta, delta, userId.ToString());
         else
-        {
-            cmd.CommandText = "UPDATE players SET balance = MAX(0, balance + $delta) WHERE user_id = $id;";
-        }
-        cmd.Parameters.AddWithValue("$delta", delta);
-        cmd.Parameters.AddWithValue("$id", userId.ToString());
-        await cmd.ExecuteNonQueryAsync();
+            await Exec("UPDATE players SET balance = MAX(0, balance + ?) WHERE user_id = ?",
+                delta, userId.ToString());
     }
 
-    // Przenieś z portfela do banku
     public async Task<bool> DepositAsync(ulong userId, int amount)
     {
-        await using var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync();
-        await EnsurePlayerAsync(conn, userId);
-
-        // Sprawdź czy ma tyle w portfelu
-        var check = conn.CreateCommand();
-        check.CommandText = "SELECT balance FROM players WHERE user_id = $id;";
-        check.Parameters.AddWithValue("$id", userId.ToString());
-        int bal = Convert.ToInt32(await check.ExecuteScalarAsync());
-        if (bal < amount) return false;
-
-        var cmd = conn.CreateCommand();
-        cmd.CommandText = @"
-            UPDATE players 
-            SET balance = balance - $amount, bank = bank + $amount
-            WHERE user_id = $id;";
-        cmd.Parameters.AddWithValue("$amount", amount);
-        cmd.Parameters.AddWithValue("$id", userId.ToString());
-        await cmd.ExecuteNonQueryAsync();
+        await EnsurePlayerAsync(userId);
+        var rows = await Query("SELECT balance FROM players WHERE user_id = ?", userId.ToString());
+        if (rows.Count == 0 || GetInt(rows[0], 0) < amount) return false;
+        await Exec("UPDATE players SET balance = balance - ?, bank = bank + ? WHERE user_id = ?",
+            amount, amount, userId.ToString());
         return true;
     }
 
-    // Przenieś z banku do portfela
     public async Task<bool> WithdrawAsync(ulong userId, int amount)
     {
-        await using var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync();
-        await EnsurePlayerAsync(conn, userId);
-
-        var check = conn.CreateCommand();
-        check.CommandText = "SELECT bank FROM players WHERE user_id = $id;";
-        check.Parameters.AddWithValue("$id", userId.ToString());
-        int bank = Convert.ToInt32(await check.ExecuteScalarAsync());
-        if (bank < amount) return false;
-
-        var cmd = conn.CreateCommand();
-        cmd.CommandText = @"
-            UPDATE players 
-            SET bank = bank - $amount, balance = balance + $amount
-            WHERE user_id = $id;";
-        cmd.Parameters.AddWithValue("$amount", amount);
-        cmd.Parameters.AddWithValue("$id", userId.ToString());
-        await cmd.ExecuteNonQueryAsync();
+        await EnsurePlayerAsync(userId);
+        var rows = await Query("SELECT bank FROM players WHERE user_id = ?", userId.ToString());
+        if (rows.Count == 0 || GetInt(rows[0], 0) < amount) return false;
+        await Exec("UPDATE players SET bank = bank - ?, balance = balance + ? WHERE user_id = ?",
+            amount, amount, userId.ToString());
         return true;
-    }
-
-    public async Task SetBalanceAsync(ulong userId, int amount)
-    {
-        await using var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync();
-        await EnsurePlayerAsync(conn, userId);
-
-        var cmd = conn.CreateCommand();
-        cmd.CommandText = "UPDATE players SET balance = $amount WHERE user_id = $id;";
-        cmd.Parameters.AddWithValue("$amount", amount);
-        cmd.Parameters.AddWithValue("$id", userId.ToString());
-        await cmd.ExecuteNonQueryAsync();
     }
 
     public async Task<(DateTime? lastWork, DateTime? lastRob)> GetCooldownsAsync(ulong userId)
     {
-        await using var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync();
-        await EnsurePlayerAsync(conn, userId);
-
-        var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT last_work, last_rob FROM players WHERE user_id = $id;";
-        cmd.Parameters.AddWithValue("$id", userId.ToString());
-
-        await using var reader = await cmd.ExecuteReaderAsync();
-        if (await reader.ReadAsync())
-        {
-            DateTime? lw = reader.IsDBNull(0) ? null : DateTime.Parse(reader.GetString(0));
-            DateTime? lr = reader.IsDBNull(1) ? null : DateTime.Parse(reader.GetString(1));
-            return (lw, lr);
-        }
-        return (null, null);
+        await EnsurePlayerAsync(userId);
+        var rows = await Query("SELECT last_work, last_rob FROM players WHERE user_id = ?", userId.ToString());
+        if (rows.Count == 0) return (null, null);
+        var lw = GetStr(rows[0], 0);
+        var lr = GetStr(rows[0], 1);
+        return (lw != null ? DateTime.Parse(lw) : null, lr != null ? DateTime.Parse(lr) : null);
     }
 
     public async Task SetCooldownAsync(ulong userId, string field)
     {
-        await using var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync();
-
-        var cmd = conn.CreateCommand();
-        cmd.CommandText = $"UPDATE players SET {field} = $now WHERE user_id = $id;";
-        cmd.Parameters.AddWithValue("$now", DateTime.UtcNow.ToString("o"));
-        cmd.Parameters.AddWithValue("$id", userId.ToString());
-        await cmd.ExecuteNonQueryAsync();
+        await Exec($"UPDATE players SET {field} = ? WHERE user_id = ?",
+            DateTime.UtcNow.ToString("o"), userId.ToString());
     }
 
     public async Task<List<(ulong userId, int balance, int bank)>> GetLeaderboardAsync(int top = 10)
     {
-        await using var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync();
-
-        var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT user_id, balance, bank FROM players ORDER BY (balance + bank) DESC LIMIT $top;";
-        cmd.Parameters.AddWithValue("$top", top);
-
-        var result = new List<(ulong, int, int)>();
-        await using var reader = await cmd.ExecuteReaderAsync();
-        while (await reader.ReadAsync())
-            result.Add((ulong.Parse(reader.GetString(0)), reader.GetInt32(1), reader.GetInt32(2)));
-        return result;
+        var rows = await Query(
+            "SELECT user_id, balance, bank FROM players ORDER BY (balance + bank) DESC LIMIT ?", top);
+        return rows.Select(r => (ulong.Parse(GetStr(r, 0)!), GetInt(r, 1), GetInt(r, 2))).ToList();
     }
 
     public async Task<(int totalWon, int totalLost)> GetStatsAsync(ulong userId)
     {
-        await using var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync();
-        await EnsurePlayerAsync(conn, userId);
-
-        var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT total_won, total_lost FROM players WHERE user_id = $id;";
-        cmd.Parameters.AddWithValue("$id", userId.ToString());
-
-        await using var reader = await cmd.ExecuteReaderAsync();
-        if (await reader.ReadAsync())
-            return (reader.GetInt32(0), reader.GetInt32(1));
+        await EnsurePlayerAsync(userId);
+        var rows = await Query("SELECT total_won, total_lost FROM players WHERE user_id = ?", userId.ToString());
+        if (rows.Count > 0) return (GetInt(rows[0], 0), GetInt(rows[0], 1));
         return (0, 0);
     }
 }
