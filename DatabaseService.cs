@@ -38,16 +38,20 @@ public class DatabaseService
     private async Task<JsonElement> Exec(string sql, params object?[] args)
     {
         // Turso HTTP API format
-        var stmt = new Dictionary<string, object>
+        var sqlParams = args.Select(a => a == null
+            ? (object)new { type = "null" }
+            : a is int or long
+                ? new { type = "integer", value = a.ToString() }
+                : new { type = "text", value = a.ToString() }).ToArray();
+
+        var body = JsonSerializer.Serialize(new
         {
-            ["q"] = sql,
-            ["params"] = args.Select(a => a == null
-                ? (object)new { type = "null" }
-                : a is int or long
-                    ? new { type = "integer", value = a.ToString() }
-                    : new { type = "text", value = a.ToString() }).ToArray()
-        };
-        var body = JsonSerializer.Serialize(new { statements = new[] { stmt } });
+            requests = new object[]
+            {
+                new { type = "execute", stmt = new { sql, args = sqlParams } },
+                new { type = "close" }
+            }
+        });
 
         var req = new HttpRequestMessage(HttpMethod.Post, $"{_url}/v2/pipeline");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _token);
@@ -66,10 +70,12 @@ public class DatabaseService
         try
         {
             Console.WriteLine($"[DB] Raw response: {result}");
-            // Turso zwraca: [{"results":{"columns":[...],"rows":[...]}}]
-            var first = result.EnumerateArray().First();
-            var results = first.GetProperty("results");
-            var resultRows = results.GetProperty("rows");
+            // Turso /v2/pipeline zwraca: {"results":[{"type":"ok","response":{"type":"execute","result":{"cols":[...],"rows":[...]}}}]}
+            var resultRows = result
+                .GetProperty("results")[0]
+                .GetProperty("response")
+                .GetProperty("result")
+                .GetProperty("rows");
             foreach (var row in resultRows.EnumerateArray())
             {
                 var r = new List<JsonElement>();
@@ -83,18 +89,20 @@ public class DatabaseService
         return rows;
     }
 
+    // Turso zwraca wartości jako {"type":"integer","value":"123"} lub {"type":"text","value":"abc"} lub {"type":"null"}
     private static int GetInt(List<JsonElement> row, int col)
     {
         try
         {
             var v = row[col];
             if (v.ValueKind == JsonValueKind.Number) return v.GetInt32();
-            if (v.ValueKind == JsonValueKind.String) return int.TryParse(v.GetString(), out int n) ? n : 0;
             if (v.ValueKind == JsonValueKind.Object)
             {
-                var val = v.GetProperty("value");
-                if (val.ValueKind == JsonValueKind.Number) return val.GetInt32();
-                return int.TryParse(val.GetString(), out int n2) ? n2 : 0;
+                if (v.TryGetProperty("value", out var val))
+                {
+                    if (val.ValueKind == JsonValueKind.Number) return val.GetInt32();
+                    if (val.ValueKind == JsonValueKind.String) return int.TryParse(val.GetString(), out int n) ? n : 0;
+                }
             }
         }
         catch { }
@@ -106,9 +114,12 @@ public class DatabaseService
         try
         {
             var v = row[col];
+            if (v.ValueKind == JsonValueKind.Object)
+            {
+                if (v.TryGetProperty("type", out var t) && t.GetString() == "null") return null;
+                if (v.TryGetProperty("value", out var val)) return val.GetString();
+            }
             if (v.ValueKind == JsonValueKind.String) return v.GetString();
-            if (v.ValueKind == JsonValueKind.Object) return v.GetProperty("value").GetString();
-            if (v.ValueKind == JsonValueKind.Null) return null;
         }
         catch { }
         return null;
