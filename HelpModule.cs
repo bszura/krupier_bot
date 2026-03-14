@@ -14,18 +14,30 @@ public class HelpModule : InteractionModuleBase<SocketInteractionContext>
             .WithDescription("Wszystkie komendy dostępne na serwerze:")
             .WithThumbnailUrl("attachment://rira.png")
             .AddField("💰 Ekonomia",
-                "`/portfel` – Sprawdź saldo\n" +
+                "`/bal` – Sprawdź portfel i bank\n" +
+                "`/dep <kwota>` – Wpłać do banku\n" +
+                "`/with <kwota>` – Wypłać z banku\n" +
                 "`/work` – Pracuj i zarabiaj (cooldown: 1h)\n" +
-                "`/rob <gracz>` – Okradnij kogoś (cooldown: 30min)\n" +
+                "`/rob <gracz>` – Okradnij czyjś portfel (cooldown: 30min)\n" +
                 "`/top` – Ranking bogaczy", false)
             .AddField("🎮 Gry kasynowe",
+                "`/roulette <zakład> <stawka>` – 🎡 Ruletka multiplayer (30s)\n" +
                 "`/blackjack <stawka>` – 🃏 Blackjack\n" +
                 "`/bj-hit` – Dobierz kartę\n" +
                 "`/bj-stand` – Zatrzymaj się", false)
+            .AddField("🎡 Ruletka – wypłaty",
+                "🔴 Czerwony / ⚫ Czarny → **x2**\n" +
+                "Parzyste / Nieparzyste / 1–18 / 19–36 → **x2**\n" +
+                "Tuzin (1–12 / 13–24 / 25–36) → **x3**\n" +
+                "🟢 Zielony (0) → **x18**\n" +
+                "Konkretna liczba (0–36) → **x36**", false)
             .AddField("🃏 Blackjack – zasady",
                 "Dobieraj karty (`/bj-hit`) by zbliżyć się do **21**.\n" +
                 "Przekroczenie 21 = **bust** (przegrana).\n" +
                 "Krupier dobiera do **17**. Blackjack = **x1.5**!", false)
+            .AddField("🏦 Bank",
+                "Pieniądze w banku są **bezpieczne** – nie można ich ukraść!\n" +
+                "Używaj `/dep` żeby chować kasę przed rabusiami.", false)
             .WithFooter("Waluta serwerowa: riry")
             .Build();
 
