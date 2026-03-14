@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: discord-casino-bot
+    runtime: dotnet
+    buildCommand: dotnet publish -c Release -o out
+    startCommand: dotnet out/DiscordCasinoBot.dll
+    envVars:
+      - key: DISCORD_TOKEN
+        sync: false
