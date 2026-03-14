@@ -102,7 +102,7 @@ public class CasinoModule : InteractionModuleBase<SocketInteractionContext>
     {
         var dealerField = showDealer
             ? $"{string.Join(" ", g.DealerCards)} → **{g.DealerTotal}**"
-            : $"{g.DealerCards[0]} 🂠 → **?**";
+            : $"{g.DealerCards[0]} 🂠 → **{g.DealerVisibleTotal}**";
 
         var e = new EmbedBuilder()
             .WithTitle("🃏 Blackjack")
@@ -144,6 +144,7 @@ public class BlackjackGame
     public void DealerPlay() { while (Calc(DealerCards) < 17) Deal(DealerCards); }
     public int PlayerTotal => Calc(PlayerCards);
     public int DealerTotal => Calc(DealerCards);
+    public int DealerVisibleTotal => Calc(DealerCards.Take(1).ToList());
 
     private static int Calc(List<string> h)
     {
