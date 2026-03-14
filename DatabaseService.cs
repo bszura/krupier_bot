@@ -65,8 +65,12 @@ public class DatabaseService
 
         try
         {
-            var resultSet = result[0].GetProperty("results").GetProperty("rows");
-            foreach (var row in resultSet.EnumerateArray())
+            Console.WriteLine($"[DB] Raw response: {result}");
+            // Turso zwraca: [{"results":{"columns":[...],"rows":[...]}}]
+            var first = result.EnumerateArray().First();
+            var results = first.GetProperty("results");
+            var resultRows = results.GetProperty("rows");
+            foreach (var row in resultRows.EnumerateArray())
             {
                 var r = new List<JsonElement>();
                 foreach (var col in row.EnumerateArray())
@@ -74,7 +78,7 @@ public class DatabaseService
                 rows.Add(r);
             }
         }
-        catch { }
+        catch (Exception ex) { Console.WriteLine($"[DB] Query parse error: {ex.Message}"); }
 
         return rows;
     }
