@@ -37,31 +37,17 @@ public class DatabaseService
 
     private async Task<JsonElement> Exec(string sql, params object?[] args)
     {
-        var stmts = new[]
-        {
-            new
-            {
-                q = sql,
-                params = args.Select((a, i) => new { name = $"?{i+1}", value = a }).ToArray()
-            }
-        };
-
         // Turso HTTP API format
-        var body = JsonSerializer.Serialize(new
+        var stmt = new Dictionary<string, object>
         {
-            statements = new[]
-            {
-                new
-                {
-                    q = sql,
-                    @params = args.Select(a => a == null
-                        ? (object)new { type = "null" }
-                        : a is int or long
-                            ? new { type = "integer", value = a.ToString() }
-                            : new { type = "text", value = a.ToString() }).ToArray()
-                }
-            }
-        });
+            ["q"] = sql,
+            ["params"] = args.Select(a => a == null
+                ? (object)new { type = "null" }
+                : a is int or long
+                    ? new { type = "integer", value = a.ToString() }
+                    : new { type = "text", value = a.ToString() }).ToArray()
+        };
+        var body = JsonSerializer.Serialize(new { statements = new[] { stmt } });
 
         var req = new HttpRequestMessage(HttpMethod.Post, $"{_url}/v2/pipeline");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _token);
