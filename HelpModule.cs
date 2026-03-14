@@ -22,9 +22,7 @@ public class HelpModule : InteractionModuleBase<SocketInteractionContext>
                 "`/top` – Ranking bogaczy", false)
             .AddField("🎮 Gry kasynowe",
                 "`/roulette <zakład> <stawka>` – 🎡 Ruletka multiplayer (30s)\n" +
-                "`/blackjack <stawka>` – 🃏 Blackjack\n" +
-                "`/bj-hit` – Dobierz kartę\n" +
-                "`/bj-stand` – Zatrzymaj się", false)
+                "`/bj <stawka>` – 🃏 Blackjack (przyciski Hit/Stand)", false)
             .AddField("🎡 Ruletka – wypłaty",
                 "🔴 Czerwony / ⚫ Czarny → **x2**\n" +
                 "Parzyste / Nieparzyste / 1–18 / 19–36 → **x2**\n" +
@@ -32,9 +30,10 @@ public class HelpModule : InteractionModuleBase<SocketInteractionContext>
                 "🟢 Zielony (0) → **x18**\n" +
                 "Konkretna liczba (0–36) → **x36**", false)
             .AddField("🃏 Blackjack – zasady",
-                "Dobieraj karty (`/bj-hit`) by zbliżyć się do **21**.\n" +
-                "Przekroczenie 21 = **bust** (przegrana).\n" +
-                "Krupier dobiera do **17**. Blackjack = **x1.5**!", false)
+                "Użyj `/bj <stawka>` żeby zacząć.\n" +
+                "Kliknij **Hit** żeby dobrać kartę, **Stand** żeby się zatrzymać.\n" +
+                "Zbliż się do **21** nie przekraczając. Krupier dobiera do **17**.\n" +
+                "Blackjack (21 na starcie) = **x1.5**!", false)
             .AddField("🏦 Bank",
                 "Pieniądze w banku są **bezpieczne** – nie można ich ukraść!\n" +
                 "Używaj `/dep` żeby chować kasę przed rabusiami.", false)

@@ -13,7 +13,7 @@ public class CasinoModule : InteractionModuleBase<SocketInteractionContext>
 
     // ── 🃏 BLACKJACK ──────────────────────────────────────────
 
-    [SlashCommand("blackjack", "Zagraj w Blackjacka!")]
+    [SlashCommand("bj", "Zagraj w Blackjacka!")]
     public async Task Blackjack([Summary("stawka")] int bet)
     {
         if (bet <= 0) { await RespondAsync("❌ Stawka musi być > 0!", ephemeral: true); return; }
@@ -22,7 +22,7 @@ public class CasinoModule : InteractionModuleBase<SocketInteractionContext>
 
         if (_games.ContainsKey(Context.User.Id))
         {
-            await RespondAsync("❌ Masz aktywną grę! Użyj `/bj-hit` lub `/bj-stand`.", ephemeral: true); return;
+            await RespondAsync("❌ Masz aktywną grę! Użyj przycisków Hit lub Stand.", ephemeral: true); return;
         }
 
         var game = new BlackjackGame(bet);
@@ -37,32 +37,34 @@ public class CasinoModule : InteractionModuleBase<SocketInteractionContext>
             await Send(game, $"🃏 BLACKJACK! +{win}", Color.Gold, await _db.GetBalanceAsync(Context.User.Id));
             return;
         }
-        await Send(game, "Hit czy Stand?", Color.Blue, null);
+        await Send(game, "Hit czy Stand?", Color.Blue, null, showButtons: true);
     }
 
-    [SlashCommand("bj-hit", "Dobierz kartę")]
-    public async Task Hit()
+    // ── Przyciski ─────────────────────────────────────────────
+
+    [ComponentInteraction("bj_hit")]
+    public async Task OnHit()
     {
         if (!_games.TryGetValue(Context.User.Id, out var game))
         {
-            await RespondAsync("❌ Brak gry. Użyj `/blackjack`.", ephemeral: true); return;
+            await RespondAsync("❌ Brak aktywnej gry.", ephemeral: true); return;
         }
         game.PlayerHit();
         if (game.PlayerTotal > 21)
         {
             _games.Remove(Context.User.Id);
-            await Send(game, $"💥 Bust! Przegrałeś **{game.Bet}**.", Color.Red, await _db.GetBalanceAsync(Context.User.Id));
+            await Update(game, $"💥 Bust! Przegrałeś **{game.Bet}**.", Color.Red, await _db.GetBalanceAsync(Context.User.Id));
             return;
         }
-        await Send(game, $"Masz **{game.PlayerTotal}**. Hit czy Stand?", Color.Blue, null);
+        await Update(game, $"Masz **{game.PlayerTotal}**. Hit czy Stand?", Color.Blue, null, showButtons: true);
     }
 
-    [SlashCommand("bj-stand", "Zatrzymaj się")]
-    public async Task Stand()
+    [ComponentInteraction("bj_stand")]
+    public async Task OnStand()
     {
         if (!_games.TryGetValue(Context.User.Id, out var game))
         {
-            await RespondAsync("❌ Brak gry. Użyj `/blackjack`.", ephemeral: true); return;
+            await RespondAsync("❌ Brak aktywnej gry.", ephemeral: true); return;
         }
         _games.Remove(Context.User.Id);
         game.DealerPlay();
@@ -73,25 +75,60 @@ public class CasinoModule : InteractionModuleBase<SocketInteractionContext>
         else                                                                     (payout, msg) = (0,            $"💸 Przegrałeś **{game.Bet}**.");
 
         await _db.UpdateBalanceAsync(Context.User.Id, payout, true);
-        await Send(game, msg,
+        await Update(game, msg,
             payout > game.Bet ? Color.Green : payout == game.Bet ? Color.Orange : Color.Red,
             await _db.GetBalanceAsync(Context.User.Id), showDealer: true);
     }
 
-    private async Task Send(BlackjackGame g, string status, Color color, int? bal, bool showDealer = false)
+    // ── Helpers ───────────────────────────────────────────────
+
+    private static MessageComponent? BuildButtons() =>
+        new ComponentBuilder()
+            .WithButton("Hit", "bj_hit", ButtonStyle.Primary, new Emoji("🃏"))
+            .WithButton("Stand", "bj_stand", ButtonStyle.Danger, new Emoji("✋"))
+            .Build();
+
+    private static Embed BuildEmbed(BlackjackGame g, string status, Color color, int? bal, bool showDealer = false)
     {
         var e = new EmbedBuilder()
-            .WithTitle("🃏 Blackjack").WithColor(color).WithDescription(status)
-            .AddField("Twoje karty", $"{string.Join(" ", g.PlayerCards)} → **{g.PlayerTotal}**")
-            .AddField("Krupier", showDealer
-                ? $"{string.Join(" ", g.DealerCards)} → **{g.DealerTotal}**"
-                : $"{g.DealerCards[0]} 🂠")
-            .AddField("Stawka", $"{g.Bet}", true);
+            .WithTitle("🃏 Blackjack")
+            .WithColor(color)
+            .WithDescription(status)
+            .AddField("Twoje karty", $"{string.Join(" ", g.PlayerCards)} → **{g.PlayerTotal}**");
+
+        if (showDealer)
+            e.AddField("Krupier", $"{string.Join(" ", g.DealerCards)} → **{g.DealerTotal}**");
+        else
+            e.AddField("Krupier", $"{g.DealerCards[0]} 🂠");
+
+        e.AddField("Stawka", $"{g.Bet}", true);
         if (bal.HasValue) e.AddField("Saldo", $"{bal}", true);
         e.WithFooter("Waluta: riry");
+        return e.Build();
+    }
 
+    // Pierwsze wysłanie (RespondWithFileAsync)
+    private async Task Send(BlackjackGame g, string status, Color color, int? bal,
+        bool showDealer = false, bool showButtons = false)
+    {
         using var rira = File.OpenRead("rira.png");
-        await RespondWithFileAsync(rira, "rira.png", embed: e.Build());
+        await RespondWithFileAsync(rira, "rira.png",
+            embed: BuildEmbed(g, status, color, bal, showDealer),
+            components: showButtons ? BuildButtons() : null);
+    }
+
+    // Aktualizacja przez przycisk (UpdateAsync)
+    private async Task Update(BlackjackGame g, string status, Color color, int? bal,
+        bool showDealer = false, bool showButtons = false)
+    {
+        await DeferAsync();
+        using var rira = File.OpenRead("rira.png");
+        await Context.Interaction.ModifyOriginalResponseAsync(p =>
+        {
+            p.Embed      = BuildEmbed(g, status, color, bal, showDealer);
+            p.Components = showButtons ? BuildButtons() : new ComponentBuilder().Build();
+            p.Attachments = new List<FileAttachment> { new(rira, "rira.png") };
+        });
     }
 }
 
