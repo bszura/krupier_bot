@@ -54,7 +54,7 @@ public class RouletteModule : InteractionModuleBase<SocketInteractionContext>
         ["black"] = (210, 171), ["odd"]   = (272, 171), ["high"]  = (332, 171),
         ["d1"]    = (60,  137), ["d2"]    = (181, 137), ["d3"]    = (302, 137),
         ["green"] = (381, 137),
-        ["row1"] = (392, 155), ["row2"] = (392, 115), ["row3"] = (392, 75),
+        ["row1"] = (382, 100), ["row2"] = (382, 60), ["row3"] = (382, 20),
     };
 
     private static (int x, int y) GetCenter(string key)
