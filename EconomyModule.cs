@@ -49,9 +49,12 @@ public class EconomyModule : InteractionModuleBase<SocketInteractionContext>
     }
 
     [SlashCommand("dep", "Wpłać pieniądze z portfela do banku")]
-    public async Task Deposit([Summary("kwota", "Ile wpłacić?")] int amount)
+    public async Task Deposit([Summary("kwota", "Ile wpłacić? Wpisz 'all' żeby wpłacić wszystko")] string rawAmount)
     {
-        if (amount <= 0) { await RespondAsync("❌ Kwota musi być > 0.", ephemeral: true); return; }
+        var (walletBal, _) = await _db.GetWalletAsync(Context.User.Id);
+        int amount = rawAmount.Trim().ToLower() == "all" ? walletBal
+            : int.TryParse(rawAmount, out int a) ? a : -1;
+        if (amount <= 0) { await RespondAsync("❌ Podaj prawidłową kwotę lub 'all'.", ephemeral: true); return; }
 
         bool ok = await _db.DepositAsync(Context.User.Id, amount);
         if (!ok)
@@ -74,9 +77,12 @@ public class EconomyModule : InteractionModuleBase<SocketInteractionContext>
     }
 
     [SlashCommand("with", "Wypłać pieniądze z banku do portfela")]
-    public async Task Withdraw([Summary("kwota", "Ile wypłacić?")] int amount)
+    public async Task Withdraw([Summary("kwota", "Ile wypłacić? Wpisz 'all' żeby wypłacić wszystko")] string rawAmount)
     {
-        if (amount <= 0) { await RespondAsync("❌ Kwota musi być > 0.", ephemeral: true); return; }
+        var (_, bankBal) = await _db.GetWalletAsync(Context.User.Id);
+        int amount = rawAmount.Trim().ToLower() == "all" ? bankBal
+            : int.TryParse(rawAmount, out int a) ? a : -1;
+        if (amount <= 0) { await RespondAsync("❌ Podaj prawidłową kwotę lub 'all'.", ephemeral: true); return; }
 
         bool ok = await _db.WithdrawAsync(Context.User.Id, amount);
         if (!ok)
@@ -205,7 +211,7 @@ public class EconomyModule : InteractionModuleBase<SocketInteractionContext>
         await RespondAsync(embed: embed);
     }
 
-    [SlashCommand("give", "Admin: daj monety graczowi")]
+    [SlashCommand("add-money", "Admin: daj monety graczowi")]
     [DefaultMemberPermissions(GuildPermission.Administrator)]
     public async Task Give(IUser user, int amount)
     {
