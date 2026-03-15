@@ -54,6 +54,7 @@ public class RouletteModule : InteractionModuleBase<SocketInteractionContext>
         ["black"] = (210, 171), ["odd"]   = (272, 171), ["high"]  = (332, 171),
         ["d1"]    = (60,  137), ["d2"]    = (181, 137), ["d3"]    = (302, 137),
         ["green"] = (381, 137),
+        ["row1"] = (392, 155), ["row2"] = (392, 115), ["row3"] = (392, 75),
     };
 
     private static (int x, int y) GetCenter(string key)
@@ -76,6 +77,7 @@ public class RouletteModule : InteractionModuleBase<SocketInteractionContext>
         "even" => "parzystym", "odd" => "nieparzystym",
         "low" => "1–18", "high" => "19–36",
         "d1" => "1. tuzinie", "d2" => "2. tuzinie", "d3" => "3. tuzinie",
+        "row1" => "1st rzędzie", "row2" => "2nd rzędzie", "row3" => "3rd rzędzie",
         _ when k.StartsWith('n') => $"numerze {k[1..]}",
         _ => k
     };
@@ -90,9 +92,12 @@ public class RouletteModule : InteractionModuleBase<SocketInteractionContext>
         [Choice("Nieparzyste (x2)",    "odd")]
         [Choice("1–18 (x2)",           "low")]
         [Choice("19–36 (x2)",          "high")]
-        [Choice("Tuzin 1–12 (x3)",     "d1")]
-        [Choice("Tuzin 13–24 (x3)",    "d2")]
-        [Choice("Tuzin 25–36 (x3)",    "d3")]
+        [Choice("Tuzin 1–12 (x3)",   "d1")]
+        [Choice("Tuzin 13–24 (x3)",  "d2")]
+        [Choice("Tuzin 25–36 (x3)",  "d3")]
+        [Choice("1st rząd (x3)",     "row1")]
+        [Choice("2nd rząd (x3)",     "row2")]
+        [Choice("3rd rząd (x3)",     "row3")]
         string zaklad,
         [Summary("stawka", "Ile postawić? Wpisz 'all' żeby postawić wszystko")] string rawStawka,
         [Summary("liczba", "Konkretna liczba 0–36 (x36)")] int? liczba = null)
@@ -256,6 +261,9 @@ public class RouletteModule : InteractionModuleBase<SocketInteractionContext>
             "d1"    => result is >= 1 and <= 12 ? 3 : 0,
             "d2"    => result is >= 13 and <= 24 ? 3 : 0,
             "d3"    => result is >= 25 and <= 36 ? 3 : 0,
+            "row1"  => new[]{ 1,4,7,10,13,16,19,22,25,28,31,34 }.Contains(result) ? 3 : 0,
+            "row2"  => new[]{ 2,5,8,11,14,17,20,23,26,29,32,35 }.Contains(result) ? 3 : 0,
+            "row3"  => new[]{ 3,6,9,12,15,18,21,24,27,30,33,36 }.Contains(result) ? 3 : 0,
             _ when k == "n" + result => 36,
             _ => 0
         };
