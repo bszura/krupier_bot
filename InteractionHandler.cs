@@ -21,8 +21,18 @@ public class InteractionHandler
         await _interactions.AddModulesAsync(Assembly.GetEntryAssembly(), _services);
         _client.Ready += async () =>
         {
-            await _interactions.RegisterCommandsGloballyAsync();
-            Console.WriteLine("✅ Komendy slash zarejestrowane globalnie.");
+            // Rejestruj na konkretnym serwerze – działa natychmiast (bez opóźnienia 1h)
+            var guildId = Environment.GetEnvironmentVariable("GUILD_ID");
+            if (guildId != null && ulong.TryParse(guildId, out ulong id))
+            {
+                await _interactions.RegisterCommandsToGuildAsync(id);
+                Console.WriteLine($"✅ Komendy slash zarejestrowane na serwerze {id}.");
+            }
+            else
+            {
+                await _interactions.RegisterCommandsGloballyAsync();
+                Console.WriteLine("✅ Komendy slash zarejestrowane globalnie.");
+            }
         };
         _client.InteractionCreated += async interaction =>
         {
