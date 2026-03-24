@@ -19,10 +19,14 @@ public class HelpModule : InteractionModuleBase<SocketInteractionContext>
                 "`/with <kwota>` – Wypłać z banku\n" +
                 "`/work` – Pracuj i zarabiaj (cooldown: 1h)\n" +
                 "`/rob <gracz>` – Okradnij czyjś portfel (cooldown: 30min)\n" +
-                "`/top` – Ranking bogaczy", false)
+                "`/top` – Ranking bogaczy\n" +
+                "`/add-money <gracz> <kwota>` – 🔒 Admin: dodaj monety", false)
             .AddField("🎮 Gry kasynowe",
                 "`/roulette <zakład> <stawka>` – 🎡 Ruletka multiplayer (30s)\n" +
-                "`/bj <stawka>` – 🃏 Blackjack (przyciski Hit/Stand)", false)
+                "`/bj <stawka>` – 🃏 Blackjack (przyciski Hit/Stand)\n" +
+                "`/slots <stawka>` – 🎰 Jednoramienmy bandyta\n" +
+                "`/coinflip <wybór> <stawka>` – 🪙 Orzeł czy reszka\n" +
+                "`/dice <wybór> <stawka>` – 🎲 Rzut kostką", false)
             .AddField("🎡 Ruletka – wypłaty",
                 "🔴 Czerwony / ⚫ Czarny → **x2**\n" +
                 "Parzyste / Nieparzyste / 1–18 / 19–36 → **x2**\n" +
