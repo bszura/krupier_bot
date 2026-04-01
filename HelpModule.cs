@@ -26,7 +26,8 @@ public class HelpModule : InteractionModuleBase<SocketInteractionContext>
                 "`/bj <stawka>` – 🃏 Blackjack (przyciski Hit/Stand)\n" +
                 "`/slots <stawka>` – 🎰 Jednoramienmy bandyta\n" +
                 "`/coinflip <wybór> <stawka>` – 🪙 Orzeł czy reszka\n" +
-                "`/dice <wybór> <stawka>` – 🎲 Rzut kostką", false)
+                "`/dice <wybór> <stawka>` – 🎲 Rzut kostką\n" +
+                "`/poker start <żetony>` – 🃏 Turniej pokera (tylko Admin)", false)
             .AddField("🎡 Ruletka – wypłaty",
                 "🔴 Czerwony / ⚫ Czarny → **x2**\n" +
                 "Parzyste / Nieparzyste / 1–18 / 19–36 → **x2**\n" +
